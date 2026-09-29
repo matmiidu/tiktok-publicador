@@ -23,14 +23,18 @@ import random
 import subprocess
 import sys
 import textwrap
+import wave
 
 import edge_tts
+import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
 FUENTES = os.path.join(AQUI, "fuentes")
 ANCHO, ALTO, FPS = 1080, 1920, 30
-PAUSA_TITULO = 0.45   # silencio entre el título y el cuerpo
+PAUSA_TITULO = 0.3    # silencio entre el título y el cuerpo
+PAUSA_MAX = 0.15      # silencio máximo entre dos palabras del cuerpo
+TASA = 24000          # edge-tts entrega mp3 mono a 24 kHz
 COLA = 1.2            # segundos al final, para que no corte en seco
 CUENTA = "@historias_y_cosas12"
 
@@ -70,7 +74,39 @@ async def _narrar(texto, voz, velocidad, ruta):
 
 
 def narrar(texto, voz, velocidad, ruta):
-    return asyncio.run(_narrar(texto, voz, velocidad, ruta))
+    """Narra a ruta (.wav) y devuelve [inicio, fin, palabra] de cada palabra.
+    Edge hace pausas largas en cada punto y coma; en TikTok eso bota gente,
+    así que se recortan los silencios entre palabras a PAUSA_MAX."""
+    mp3 = ruta[:-4] + ".mp3"
+    palabras = asyncio.run(_narrar(texto, voz, velocidad, mp3))
+    crudo = subprocess.run([FFMPEG, "-loglevel", "error", "-i", mp3, "-f", "s16le", "-ac", "1",
+                            "-ar", str(TASA), "-"], capture_output=True, check=True).stdout
+    audio = np.frombuffer(crudo, dtype=np.int16)
+    trozos, quitado, cursor = [], 0.0, 0.0
+    # los bordes también: poco silencio antes de la primera palabra y después de la última
+    limites = [(0.0, palabras[0][0], 0.05)]
+    limites += [(a[1], b[0], PAUSA_MAX) for a, b in zip(palabras, palabras[1:])]
+    limites.append((palabras[-1][1], len(audio) / TASA, 0.12))
+    ajustes = []
+    for fin_ant, ini_sig, maximo in limites:
+        hueco = ini_sig - fin_ant
+        sobra = hueco - maximo
+        if sobra > 0.01:
+            corte_ini = fin_ant + maximo * 0.6   # deja más aire después de la palabra
+            trozos.append(audio[int(cursor * TASA):int(corte_ini * TASA)])
+            cursor = corte_ini + sobra
+            quitado += sobra
+        ajustes.append(quitado)
+    trozos.append(audio[int(cursor * TASA):])
+    for p, desplazamiento in zip(palabras, ajustes):
+        p[0] -= desplazamiento
+        p[1] -= desplazamiento
+    with wave.open(ruta, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(TASA)
+        w.writeframes(np.concatenate(trozos).tobytes())
+    return palabras
 
 
 # ---------- subtítulos ----------
@@ -129,7 +165,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
 # ---------- tarjeta del título ----------
 
-def tarjeta(titulo, ruta):
+def tarjeta(titulo, pie, ruta):
     w, pad = 940, 44
     f_titulo = ImageFont.truetype(os.path.join(FUENTES, "Montserrat-ExtraBold.ttf"), 54)
     f_cuenta = ImageFont.truetype(os.path.join(FUENTES, "Montserrat-SemiBold.ttf"), 34)
@@ -149,7 +185,7 @@ def tarjeta(titulo, ruta):
         d.text((pad, y), linea, font=f_titulo, fill=(15, 15, 15))
         y += 68
     y += 30
-    d.text((pad, y), "Historia completa", font=f_cuenta, fill=(140, 140, 140))
+    d.text((pad, y), pie, font=f_cuenta, fill=(140, 140, 140))
     img.save(ruta)
 
 
@@ -266,24 +302,30 @@ def main():
     tmp = os.path.join(AQUI, "salida", "tmp", nombre)
     os.makedirs(tmp, exist_ok=True)
     with open(a.historia, encoding="utf-8") as f:
-        titulo, _, cuerpo = f.read().strip().partition("\n")
-    cuerpo = " ".join(cuerpo.split())
+        lineas = f.read().strip().splitlines()
+    # Las líneas "# clave: valor" son datos, no se narran:
+    #   # tarjeta: texto bajo el título    # fuente: url del hilo (puede repetirse)
+    datos = [l[1:].partition(":") for l in lineas if l.startswith("#")]
+    lineas = [l for l in lineas if not l.startswith("#")]
+    titulo, cuerpo = lineas[0], " ".join(" ".join(lineas[1:]).split())
+    pie = next((v.strip() for k, _, v in datos if k.strip() == "tarjeta"), "Historia completa")
+    fuentes = [v.strip() for k, _, v in datos if k.strip() == "fuente"]
 
     print("Narrando…")
-    narrar(titulo, a.voz, a.velocidad, os.path.join(tmp, "titulo.mp3"))
-    palabras = narrar(cuerpo, a.voz, a.velocidad, os.path.join(tmp, "cuerpo.mp3"))
-    t_titulo = duracion(os.path.join(tmp, "titulo.mp3"))
+    narrar(titulo, a.voz, a.velocidad, os.path.join(tmp, "titulo.wav"))
+    palabras = narrar(cuerpo, a.voz, a.velocidad, os.path.join(tmp, "cuerpo.wav"))
+    t_titulo = duracion(os.path.join(tmp, "titulo.wav"))
     desfase = t_titulo + PAUSA_TITULO
     for p in palabras:
         p[0] += desfase
         p[1] += desfase
-    total = desfase + duracion(os.path.join(tmp, "cuerpo.mp3")) + COLA
-    ff("-i", os.path.join(tmp, "titulo.mp3"), "-i", os.path.join(tmp, "cuerpo.mp3"),
+    total = desfase + duracion(os.path.join(tmp, "cuerpo.wav")) + COLA
+    ff("-i", os.path.join(tmp, "titulo.wav"), "-i", os.path.join(tmp, "cuerpo.wav"),
        "-filter_complex", f"[0:a]apad=pad_dur={PAUSA_TITULO}[a];[a][1:a]concat=n=2:v=0:a=1,apad=pad_dur={COLA}[o]",
        "-map", "[o]", "-ar", "44100", os.path.join(tmp, "voz.wav"))
 
     escribir_ass(palabras, os.path.join(tmp, "subs.ass"))
-    tarjeta(titulo, os.path.join(tmp, "tarjeta.png"))
+    tarjeta(titulo, pie, os.path.join(tmp, "tarjeta.png"))
 
     print(f"Fondo ({total:.0f} s)…")
     fondo = os.path.join(tmp, "fondo.mp4")
@@ -305,10 +347,11 @@ def main():
        f"[0:v][c]overlay=(W-w)/2:H*0.40-h/2:enable='lte(t,{sale + 0.35:.2f})'[v1];"
        f"[v1]ass=subs.ass:fontsdir={fuentes_rel}[v]",
        "-map", "[v]", "-map", "2:a", "-t", f"{total:.2f}",
-       "-c:v", "libx264", "-preset", "medium", "-crf", "20", "-pix_fmt", "yuv420p",
+       "-c:v", "libx264", "-preset", "medium", "-crf", "23", "-pix_fmt", "yuv420p",
        "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart", os.path.abspath(salida), cwd=tmp)
     descripcion = (f"{titulo}\n\n#historias #reddit #historiasdereddit #relatos #storytime\n\n"
-                   f"{credito(origen)}").strip()
+                   + "".join(f"Historias de Reddit, adaptadas: {u}\n" for u in fuentes)
+                   + credito(origen)).strip()
     with open(os.path.join(AQUI, "salida", f"{nombre}.txt"), "w", encoding="utf-8") as f:
         f.write(descripcion + "\n")
     print(f"Listo: {salida} ({total:.0f} s)")
