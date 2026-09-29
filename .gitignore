@@ -7,3 +7,5 @@ __pycache__/
 .env.bak*
 generador/salida/
 subidas.log
+cola.txt
+cola.log

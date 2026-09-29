@@ -2,8 +2,9 @@
 
     python hacer_video.py historias/001_x.txt [--voz es-MX-JorgeNeural] [--velocidad +15%] [--fondo ...]
 
-La historia es un .txt: la primera línea es el título (la pregunta o el gancho),
-después una línea en blanco y el cuerpo. El video sale en salida/<nombre>.mp4, y
+La historia es un .txt: la primera línea es el título (la pregunta o el gancho) y
+después el cuerpo, o varias respuestas con su tarjeta y su voz (el formato está
+en leer_historia). El video sale en salida/<nombre>.mp4, y
 al lado salida/<nombre>.txt con la descripción para TikTok (incluye el crédito
 del fondo, que las licencias CC BY exigen).
 
@@ -33,6 +34,7 @@ AQUI = os.path.dirname(os.path.abspath(__file__))
 FUENTES = os.path.join(AQUI, "fuentes")
 ANCHO, ALTO, FPS = 1080, 1920, 30
 PAUSA_TITULO = 0.3    # silencio entre el título y el cuerpo
+PAUSA_TRAMO = 0.5    # silencio entre una respuesta y la siguiente
 PAUSA_MAX = 0.15      # silencio máximo entre dos palabras del cuerpo
 TASA = 24000          # edge-tts entrega mp3 mono a 24 kHz
 COLA = 1.2            # segundos al final, para que no corte en seco
@@ -189,6 +191,49 @@ def tarjeta(titulo, pie, ruta):
     img.save(ruta)
 
 
+
+def votos_txt(n):
+    if n >= 1000:
+        return f"{n / 1000:.1f}".replace(".", ",").replace(",0", "") + " mil"
+    return str(n)
+
+
+def comentario(usuario, votos, subreddit, texto, ruta):
+    """Comentario al estilo Reddit: avatar, usuario, votos y la primera frase
+    de la respuesta. Queda arriba mientras se narra esa respuesta."""
+    w, pad = 940, 38
+    f_user = ImageFont.truetype(os.path.join(FUENTES, "Montserrat-ExtraBold.ttf"), 36)
+    f_meta = ImageFont.truetype(os.path.join(FUENTES, "Montserrat-SemiBold.ttf"), 30)
+    f_texto = ImageFont.truetype(os.path.join(FUENTES, "Montserrat-SemiBold.ttf"), 40)
+    frase = texto.split(". ")[0].rstrip(".") + "…"
+    lineas = textwrap.wrap(frase, width=36)
+    if len(lineas) > 3:
+        lineas = lineas[:3]
+        lineas[-1] = lineas[-1].rstrip(" ,.…") + "…"
+    h = pad + 76 + 22 + len(lineas) * 52 + 26 + 44 + pad
+    img = Image.new("RGBA", (w + 20, h + 20), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    d.rounded_rectangle([10, 14, w + 10, h + 14], 34, fill=(0, 0, 0, 90))
+    d.rounded_rectangle([0, 0, w, h], 34, fill=(255, 255, 255, 255))
+    # avatar: color fijo por usuario, inicial en blanco
+    tono = (sum(map(ord, usuario)) % 360) / 360
+    color = tuple(int(c * 255) for c in colorsys.hsv_to_rgb(tono, 0.6, 0.9))
+    d.ellipse([pad, pad, pad + 76, pad + 76], fill=color)
+    inicial = usuario.removeprefix("u/")[:1].upper() or "?"
+    d.text((pad + 38, pad + 38), inicial, font=f_user, fill="white", anchor="mm")
+    d.text((pad + 96, pad + 20), usuario, font=f_user, fill=(26, 26, 27), anchor="lm")
+    d.text((pad + 96, pad + 58), subreddit, font=f_meta, fill=(120, 124, 126), anchor="lm")
+    y = pad + 76 + 22
+    for linea in lineas:
+        d.text((pad, y), linea, font=f_texto, fill=(26, 26, 27))
+        y += 52
+    y += 26
+    # flecha de voto (triángulo) + votos
+    d.polygon([(pad, y + 30), (pad + 16, y + 8), (pad + 32, y + 30)], fill=(255, 69, 0))
+    d.text((pad + 46, y + 20), votos_txt(votos), font=f_meta, fill=(255, 69, 0), anchor="lm")
+    d.text((pad + 250, y + 20), "Responder   ·   Compartir", font=f_meta, fill=(135, 138, 140), anchor="lm")
+    img.save(ruta)
+
 # ---------- fondo ----------
 
 def fondo_animado(segundos, ruta, semilla):
@@ -290,6 +335,56 @@ def fondo_de_video(origen, segundos, ruta, semilla):
 
 # ---------- armado ----------
 
+def leer_historia(ruta, voz_defecto):
+    """Formato del .txt:
+
+        Título (la pregunta o el gancho)
+        # tarjeta: texto bajo el título      # fuente: url   # voz: ...   # subreddit: r/...
+
+        Cuerpo de una sola historia, narrado de corrido.
+
+    o, para varias respuestas, un tramo por respuesta:
+
+        == u/usuario | votos | voz | r/subreddit   (voz y subreddit son opcionales)
+        texto de la respuesta
+        == narrador | voz
+        texto sin tarjeta (p. ej. la actualización que escribe otra persona)
+        == cierre
+        ¿Pregunta final?
+
+    Cada respuesta sale con su tarjeta de comentario y su propia voz; el
+    narrador y el cierre van sin tarjeta, con la voz del título salvo que se
+    indique otra."""
+    with open(ruta, encoding="utf-8") as f:
+        lineas = [l.strip() for l in f.read().strip().splitlines()]
+    datos = {}
+    for l in lineas:
+        if l.startswith("#"):
+            k, _, v = l[1:].partition(":")
+            datos.setdefault(k.strip(), []).append(v.strip())
+    lineas = [l for l in lineas if l and not l.startswith("#")]
+    titulo, resto = lineas[0], lineas[1:]
+    voz = datos.get("voz", [voz_defecto])[-1]
+    tramos, actual = [], None
+    for l in resto:
+        if l.startswith("=="):
+            partes = [x.strip() for x in l[2:].split("|")]
+            if partes[0].lower() in ("cierre", "narrador"):
+                actual = {"usuario": None, "votos": 0, "texto": "",
+                          "voz": partes[1] if len(partes) > 1 and partes[1] else voz}
+            else:
+                actual = {"usuario": partes[0], "votos": int(partes[1]),
+                          "voz": partes[2] if len(partes) > 2 and partes[2] else voz,
+                          "subreddit": partes[3] if len(partes) > 3 else None, "texto": ""}
+            tramos.append(actual)
+        else:
+            if actual is None:
+                actual = {"usuario": None, "votos": 0, "voz": voz, "texto": ""}
+                tramos.append(actual)
+            actual["texto"] = (actual["texto"] + " " + l).strip()
+    return titulo, datos, tramos
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("historia")
@@ -301,31 +396,42 @@ def main():
     nombre = os.path.splitext(os.path.basename(a.historia))[0]
     tmp = os.path.join(AQUI, "salida", "tmp", nombre)
     os.makedirs(tmp, exist_ok=True)
-    with open(a.historia, encoding="utf-8") as f:
-        lineas = f.read().strip().splitlines()
-    # Las líneas "# clave: valor" son datos, no se narran:
-    #   # tarjeta: texto bajo el título    # fuente: url del hilo (puede repetirse)
-    datos = [l[1:].partition(":") for l in lineas if l.startswith("#")]
-    lineas = [l for l in lineas if not l.startswith("#")]
-    titulo, cuerpo = lineas[0], " ".join(" ".join(lineas[1:]).split())
-    pie = next((v.strip() for k, _, v in datos if k.strip() == "tarjeta"), "Historia completa")
-    fuentes = [v.strip() for k, _, v in datos if k.strip() == "fuente"]
+    titulo, datos, tramos = leer_historia(a.historia, a.voz)
+    pie = datos.get("tarjeta", ["Historia completa"])[-1]
+    subreddit = datos.get("subreddit", ["r/AskReddit"])[-1]
+    fuentes = datos.get("fuente", [])
+    voz_titulo = datos.get("voz", [a.voz])[-1]
 
     print("Narrando…")
-    narrar(titulo, a.voz, a.velocidad, os.path.join(tmp, "titulo.wav"))
-    palabras = narrar(cuerpo, a.voz, a.velocidad, os.path.join(tmp, "cuerpo.wav"))
+    narrar(titulo, voz_titulo, a.velocidad, os.path.join(tmp, "titulo.wav"))
     t_titulo = duracion(os.path.join(tmp, "titulo.wav"))
-    desfase = t_titulo + PAUSA_TITULO
-    for p in palabras:
-        p[0] += desfase
-        p[1] += desfase
-    total = desfase + duracion(os.path.join(tmp, "cuerpo.wav")) + COLA
-    ff("-i", os.path.join(tmp, "titulo.wav"), "-i", os.path.join(tmp, "cuerpo.wav"),
-       "-filter_complex", f"[0:a]apad=pad_dur={PAUSA_TITULO}[a];[a][1:a]concat=n=2:v=0:a=1,apad=pad_dur={COLA}[o]",
-       "-map", "[o]", "-ar", "44100", os.path.join(tmp, "voz.wav"))
+    t = t_titulo + PAUSA_TITULO
+    palabras, audios, pausas, tarjetas = [], ["titulo.wav"], [PAUSA_TITULO], []
+    for i, tramo in enumerate(tramos):
+        wav = f"tramo{i}.wav"
+        ps = narrar(tramo["texto"], tramo["voz"], a.velocidad, os.path.join(tmp, wav))
+        for p in ps:
+            p[0] += t
+            p[1] += t
+        palabras += ps
+        dur = duracion(os.path.join(tmp, wav))
+        if tramo["usuario"]:
+            png = f"comentario{i}.png"
+            comentario(tramo["usuario"], tramo["votos"], tramo.get("subreddit") or subreddit,
+                       tramo["texto"], os.path.join(tmp, png))
+            tarjetas.append((png, t - 0.15, t + dur, "ARRIBA"))
+        audios.append(wav)
+        pausas.append(PAUSA_TRAMO if i + 1 < len(tramos) else COLA)
+        t += dur + pausas[-1]
+    total = t
+    entradas = sum((["-i", os.path.join(tmp, x)] for x in audios), [])
+    filtro = "".join(f"[{i}:a]apad=pad_dur={pa}[a{i}];" for i, pa in enumerate(pausas))
+    filtro += "".join(f"[a{i}]" for i in range(len(audios))) + f"concat=n={len(audios)}:v=0:a=1[o]"
+    ff(*entradas, "-filter_complex", filtro, "-map", "[o]", "-ar", "44100", os.path.join(tmp, "voz.wav"))
 
     escribir_ass(palabras, os.path.join(tmp, "subs.ass"))
     tarjeta(titulo, pie, os.path.join(tmp, "tarjeta.png"))
+    tarjetas.insert(0, ("tarjeta.png", 0.0, t_titulo + 0.1, "CENTRO"))
 
     print(f"Fondo ({total:.0f} s)…")
     fondo = os.path.join(tmp, "fondo.mp4")
@@ -338,15 +444,20 @@ def main():
 
     print("Armando…")
     salida = os.path.join(AQUI, "salida", f"{nombre}.mp4")
-    sale = t_titulo + 0.1
     # Rutas relativas a tmp: el filtro ass no se lleva bien con "C:\" en Windows.
     fuentes_rel = os.path.relpath(FUENTES, tmp).replace("\\", "/")
-    ff("-i", "fondo.mp4", "-loop", "1", "-framerate", str(FPS), "-i", "tarjeta.png", "-i", "voz.wav",
-       "-filter_complex",
-       f"[1:v]format=rgba,fade=in:st=0:d=0.25:alpha=1,fade=out:st={sale:.2f}:d=0.3:alpha=1[c];"
-       f"[0:v][c]overlay=(W-w)/2:H*0.40-h/2:enable='lte(t,{sale + 0.35:.2f})'[v1];"
-       f"[v1]ass=subs.ass:fontsdir={fuentes_rel}[v]",
-       "-map", "[v]", "-map", "2:a", "-t", f"{total:.2f}",
+    entradas = ["-i", "fondo.mp4", "-i", "voz.wav"]
+    filtro, previo = "", "0:v"
+    for k, (png, desde, hasta, lugar) in enumerate(tarjetas):
+        entradas += ["-loop", "1", "-framerate", str(FPS), "-t", f"{total:.2f}", "-i", png]
+        y = "H*0.40-h/2" if lugar == "CENTRO" else "150"
+        filtro += (f"[{k + 2}:v]format=rgba,fade=in:st={max(desde, 0):.2f}:d=0.2:alpha=1,"
+                   f"fade=out:st={hasta:.2f}:d=0.25:alpha=1[c{k}];"
+                   f"[{previo}][c{k}]overlay=(W-w)/2:{y}:enable='between(t,{desde:.2f},{hasta + 0.3:.2f})'[v{k}];")
+        previo = f"v{k}"
+    filtro += f"[{previo}]ass=subs.ass:fontsdir={fuentes_rel}[v]"
+    ff(*entradas, "-filter_complex", filtro,
+       "-map", "[v]", "-map", "1:a", "-t", f"{total:.2f}",
        "-c:v", "libx264", "-preset", "medium", "-crf", "23", "-pix_fmt", "yuv420p",
        "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart", os.path.abspath(salida), cwd=tmp)
     descripcion = (f"{titulo}\n\n#historias #reddit #historiasdereddit #relatos #storytime\n\n"
