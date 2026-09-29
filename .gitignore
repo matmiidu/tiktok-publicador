@@ -6,3 +6,4 @@ token*.json
 __pycache__/
 .env.bak*
 generador/salida/
+subidas.log

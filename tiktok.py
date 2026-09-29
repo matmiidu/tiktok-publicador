@@ -142,6 +142,8 @@ def cmd_subir(env, ruta):
                 sys.exit(f"Falló el trozo {i + 1}/{n}: {e.code} {e.read().decode(errors='replace')}")
             print(f"  trozo {i + 1}/{n} subido ({math.ceil((fin + 1) / tamano * 100)}%)")
     print(f"Listo. publish_id = {publish_id}")
+    with open(os.path.join(AQUI, "subidas.log"), "a", encoding="utf-8") as f:
+        f.write(f"{time.strftime('%Y-%m-%d %H:%M')}\t{publish_id}\t{os.path.basename(ruta)}\n")
     print("Te debería llegar una notificación en TikTok para terminar de publicarlo.")
     cmd_estado(env, publish_id)
 

@@ -1,13 +1,16 @@
 """Arma un video vertical de historia narrada, al estilo de las historias de Reddit.
 
-    python hacer_video.py historias/001_x.txt [--voz es-MX-JorgeNeural] [--velocidad +15%] [--fondo gameplay.mp4]
+    python hacer_video.py historias/001_x.txt [--voz es-MX-JorgeNeural] [--velocidad +15%] [--fondo ...]
 
 La historia es un .txt: la primera línea es el título (la pregunta o el gancho),
-después una línea en blanco y el cuerpo. El video sale en salida/<nombre>.mp4.
+después una línea en blanco y el cuerpo. El video sale en salida/<nombre>.mp4, y
+al lado salida/<nombre>.txt con la descripción para TikTok (incluye el crédito
+del fondo, que las licencias CC BY exigen).
 
-Sin --fondo, el fondo es una animación propia (pelotas que rebotan dentro de un
-anillo), así que no hay derechos de terceros de por medio. Con --fondo se toma un
-tramo al azar de ese video, recortado a 9:16.
+--fondo puede ser un video, una carpeta (elige uno al azar) o "animado". Por
+defecto usa la carpeta fondos/ si tiene videos, y si no, la animación propia
+(pelotas que rebotan dentro de un anillo). De cada video toma un tramo al azar,
+recortado a 9:16. Los créditos de cada fondo están en fondos/creditos.json.
 """
 import argparse
 import asyncio
@@ -213,6 +216,32 @@ def fondo_animado(segundos, ruta, semilla):
         sys.exit("FFmpeg falló al hacer el fondo")
 
 
+def elegir_fondo(opcion, semilla):
+    """Devuelve la ruta de un video de fondo, o None para la animación."""
+    if opcion == "animado":
+        return None
+    carpeta = opcion or os.path.join(AQUI, "fondos")
+    if os.path.isfile(carpeta):
+        return carpeta
+    videos = sorted(glob.glob(os.path.join(carpeta, "*.mp4")))
+    if not videos:
+        if opcion:
+            sys.exit(f"No hay videos .mp4 en {carpeta}")
+        return None
+    return random.Random(semilla).choice(videos)
+
+
+def credito(ruta_fondo):
+    if not ruta_fondo:
+        return ""
+    with open(os.path.join(AQUI, "fondos", "creditos.json"), encoding="utf-8") as f:
+        c = json.load(f).get(os.path.basename(ruta_fondo))
+    if not c:
+        return f"Fondo: {os.path.basename(ruta_fondo)} (sin crédito registrado en fondos/creditos.json)"
+    return (f"Gameplay de fondo: {c['autor']} ({c['url']}), licencia {c['licencia']}. "
+            "Editado del original.")
+
+
 def fondo_de_video(origen, segundos, ruta, semilla):
     total = duracion(origen)
     if total < segundos:
@@ -258,8 +287,10 @@ def main():
 
     print(f"Fondo ({total:.0f} s)…")
     fondo = os.path.join(tmp, "fondo.mp4")
-    if a.fondo:
-        fondo_de_video(a.fondo, total, fondo, nombre)
+    origen = elegir_fondo(a.fondo, nombre)
+    if origen:
+        print(f"  usando {os.path.basename(origen)}")
+        fondo_de_video(origen, total, fondo, nombre)
     else:
         fondo_animado(total, fondo, nombre)
 
@@ -276,7 +307,12 @@ def main():
        "-map", "[v]", "-map", "2:a", "-t", f"{total:.2f}",
        "-c:v", "libx264", "-preset", "medium", "-crf", "20", "-pix_fmt", "yuv420p",
        "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart", os.path.abspath(salida), cwd=tmp)
+    descripcion = (f"{titulo}\n\n#historias #reddit #historiasdereddit #relatos #storytime\n\n"
+                   f"{credito(origen)}").strip()
+    with open(os.path.join(AQUI, "salida", f"{nombre}.txt"), "w", encoding="utf-8") as f:
+        f.write(descripcion + "\n")
     print(f"Listo: {salida} ({total:.0f} s)")
+    print(f"Descripción para TikTok (salida/{nombre}.txt):\n{descripcion}")
 
 
 if __name__ == "__main__":
