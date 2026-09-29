@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Autorización recibida</title><link rel="stylesheet" href="../estilo.css"></head><body><main>
+<h1 id="titulo">Autorización recibida</h1>
+<p class="sub" id="sub">Copia este código y pégalo en la terminal donde lo pidieron.</p>
+<div class="caja" id="caja" hidden>
+<code id="codigo"></code>
+<button id="copiar" type="button">Copiar código</button>
+</div>
+<p id="nota" class="sub">El código vence en pocos minutos y sirve una sola vez. Esta página no lo envía a ningún lado: solo lo muestra.</p>
+<script>
+(function(){
+  var p=new URLSearchParams(location.search);
+  var code=p.get('code'), err=p.get('error');
+  if(err){
+    document.getElementById('titulo').textContent='No se autorizó';
+    document.getElementById('sub').textContent='TikTok respondió: '+err+(p.get('error_description')?' — '+p.get('error_description'):'');
+    return;
+  }
+  if(!code){
+    document.getElementById('titulo').textContent='Página de retorno';
+    document.getElementById('sub').textContent='Aquí vuelve TikTok después de autorizar. Si llegaste directo, no hay nada que copiar.';
+    document.getElementById('nota').hidden=true;
+    return;
+  }
+  var texto=code+(p.get('state')?' '+p.get('state'):'');
+  document.getElementById('codigo').textContent=texto;
+  document.getElementById('caja').hidden=false;
+  document.getElementById('copiar').onclick=function(){
+    navigator.clipboard.writeText(texto).then(function(){document.getElementById('copiar').textContent='Copiado ✓';});
+  };
+})();
+</script>
+</main></body></html>
