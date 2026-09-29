@@ -5,3 +5,4 @@ token*.json
 *.mp3
 __pycache__/
 .env.bak*
+generador/salida/
