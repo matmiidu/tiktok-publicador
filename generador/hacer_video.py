@@ -21,6 +21,7 @@ import json
 import math
 import os
 import random
+import shutil
 import subprocess
 import sys
 import textwrap
@@ -470,6 +471,8 @@ def main():
                    + credito(origen)).strip()
     with open(os.path.join(AQUI, "salida", f"{nombre}.txt"), "w", encoding="utf-8") as f:
         f.write(descripcion + "\n")
+    # Los intermedios (fondo recortado, audios, tarjetas) pesan cientos de MB y ya no sirven.
+    shutil.rmtree(tmp, ignore_errors=True)
     print(f"Listo: {salida} ({total:.0f} s)")
     print(f"Descripción para TikTok (salida/{nombre}.txt):\n{descripcion}")
 
