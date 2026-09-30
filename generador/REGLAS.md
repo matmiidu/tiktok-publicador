@@ -78,5 +78,9 @@ revisión se agrega aquí. Un comentario sobre un video vale para todos.
 
 ## Flujo
 
+- **Una aprobación se respeta.** Si después se rehace un video aprobado solo
+  para aplicarle una regla que el dueño pidió (voces, contexto, quitar
+  nombres…), sigue aprobado y se avisa qué cambió. Vuelve a "Por revisar"
+  únicamente si cambia algo que el dueño no pidió.
 - Nada va a TikTok sin estar aprobado en el panel de revisión. Lo aprobado se
   agrega a `cola.txt`, y la tarea diaria lo sube (máximo 5 por día).
