@@ -39,6 +39,7 @@ PAUSA_MAX = 0.15      # silencio máximo entre dos palabras del cuerpo
 TASA = 24000          # edge-tts entrega mp3 mono a 24 kHz
 COLA = 1.2            # segundos al final, para que no corte en seco
 CUENTA = "@historias_y_cosas12"
+NOMBRE_EN_PANTALLA = "Usuario de Reddit"   # en las tarjetas de comentario, en vez del u/nombre real
 
 
 def binario(nombre):
@@ -219,9 +220,10 @@ def comentario(usuario, votos, subreddit, texto, ruta):
     tono = (sum(map(ord, usuario)) % 360) / 360
     color = tuple(int(c * 255) for c in colorsys.hsv_to_rgb(tono, 0.6, 0.9))
     d.ellipse([pad, pad, pad + 76, pad + 76], fill=color)
-    inicial = usuario.removeprefix("u/")[:1].upper() or "?"
-    d.text((pad + 38, pad + 38), inicial, font=f_user, fill="white", anchor="mm")
-    d.text((pad + 96, pad + 20), usuario, font=f_user, fill=(26, 26, 27), anchor="lm")
+    # El nombre real no se muestra (regla del canal: proteger a los autores);
+    # solo sirve para variar el color del avatar entre respuestas.
+    d.text((pad + 38, pad + 38), "U", font=f_user, fill="white", anchor="mm")
+    d.text((pad + 96, pad + 20), NOMBRE_EN_PANTALLA, font=f_user, fill=(26, 26, 27), anchor="lm")
     d.text((pad + 96, pad + 58), subreddit, font=f_meta, fill=(120, 124, 126), anchor="lm")
     y = pad + 76 + 22
     for linea in lineas:
@@ -460,7 +462,10 @@ def main():
        "-map", "[v]", "-map", "1:a", "-t", f"{total:.2f}",
        "-c:v", "libx264", "-preset", "medium", "-crf", "23", "-pix_fmt", "yuv420p",
        "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart", os.path.abspath(salida), cwd=tmp)
-    descripcion = (f"{titulo}\n\n#historias #reddit #historiasdereddit #relatos #storytime\n\n"
+    # Gancho y hashtags propios de cada historia (REGLAS.md); si faltan, el título y unos genéricos.
+    gancho = datos.get("descripcion", [titulo])[-1]
+    hashtags = datos.get("hashtags", ["#historiasdereddit #reddit #historiasreales #storytime #parati"])[-1]
+    descripcion = (f"{gancho}\n\n{hashtags}\n\n"
                    + "".join(f"Historias de Reddit, adaptadas: {u}\n" for u in fuentes)
                    + credito(origen)).strip()
     with open(os.path.join(AQUI, "salida", f"{nombre}.txt"), "w", encoding="utf-8") as f:

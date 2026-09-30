@@ -35,8 +35,12 @@ revisión se agrega aquí. Un comentario sobre un video vale para todos.
 ## Estructura
 
 - **Varias respuestas:** no se narra "primera, segunda y tercera respuesta".
-  Cada respuesta aparece arriba como comentario de Reddit, con el usuario y los
-  votos reales, mientras se narra, y cada una lleva **otra voz**.
+  Cada respuesta aparece arriba como comentario de Reddit, con los votos
+  reales, mientras se narra, y cada una lleva **otra voz**.
+- **Sin nombres de usuario en pantalla** (2026-09-30). La tarjeta de cada
+  comentario dice "Usuario de Reddit", con el subreddit y los votos reales. El
+  nombre real se guarda en el .txt solo como registro, y el enlace al hilo va
+  en la descripción. Motivo: no exponer a los autores de historias personales.
 - **Una sola historia:** se narra de corrido, con una voz acorde a quien la
   cuenta (voz de mujer si la narradora es mujer).
 - **Actualizaciones:** si hay una, se dice "Actualización"; si hay varias,
@@ -59,6 +63,18 @@ revisión se agrega aquí. Un comentario sobre un video vale para todos.
 - Fondo de parkour de Minecraft vertical, con licencia CC BY y crédito en la
   descripción; tarjeta blanca con la pregunta al inicio; subtítulos grandes
   palabra por palabra, con la palabra actual en amarillo.
+
+## Descripción para TikTok (2026-09-30)
+
+- Cada video lleva su propia descripción: una o dos frases gancho que
+  adelanten lo más fuerte de la historia sin contar el final, y un emoji como
+  mucho.
+- Entre 5 y 7 hashtags: los del tema (#truecrime, #medicina, #venganza,
+  #adn…), los del formato (#historiasdereddit, #reddit, #storytime,
+  #historiasreales) y #parati. Se evitan los genéricos que no dicen nada
+  (#viral, #fyp repetido) y los que no tienen que ver con el video.
+- En el .txt van como `# descripcion:` y `# hashtags:`. El generador agrega
+  después los enlaces a los hilos y el crédito del gameplay.
 
 ## Flujo
 
